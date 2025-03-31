@@ -1,0 +1,770 @@
+---
+title: "master_code"
+author: "Aleksa Đorđević"
+date: "2024-04-20"
+output: pdf_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+Setting up packages:
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Loading required libraries
+library(data.table)
+# install.packages("arm")
+# library(boot)
+library(arm) # used for bayesglm
+# install.packages("stringr")
+library(stringr) # counting strings
+# install.packages("stratEst")
+library(stratEst)
+# install.packages("caret")
+library(caret)
+library(dplyr)
+# install.packages("ggplot2")
+# install.packages("reshape2")
+library(ggplot2)
+library(reshape2)
+library(rstatix)
+library(ggpubr)
+```
+
+Loading the data:
+
+```{r}
+# We load the data sets from the simulations
+first_0.05 <- read.csv("C:/Users/aleks/Downloads/predict_0.05_first.csv", header=TRUE)
+first_0.1 <- read.csv("C:/Users/aleks/Downloads/predict_0.1_first.csv", header=TRUE)
+first_0.15 <- read.csv("C:/Users/aleks/Downloads/predict_0.15_first.csv", header=TRUE)
+
+second_0.05 <- read.csv("C:/Users/aleks/Downloads/predict_0.05_second.csv", header=TRUE)
+second_0.1 <- read.csv("C:/Users/aleks/Downloads/predict_0.1_second.csv", header=TRUE)
+second_0.15 <- read.csv("C:/Users/aleks/Downloads/predict_0.15_second.csv", header=TRUE)
+
+```
+
+Defining a function for plotting the confusion matrix heatmaps:
+
+```{r}
+plot_confusion_matrix <- function(data, 
+                                  actual_col, 
+                                  predicted_col, 
+                                  method_name, 
+                                  levels = NULL,
+                                  error_rate = NULL) {
+  # Determine appropriate levels
+  if (is.null(levels)) {
+    levels <- switch(method_name,
+                     "SFIT" = c('ALT', 'DEF', 'REW', 'CAU', 'UCL'),
+                     "TREND" = c('ALT', 'DEF', 'REW', 'CAU', 'SOPH', 'UCL'),
+                     c('ALT', 'DEF', 'REW', 'CR', 'MD', 'CAU', 'UCL')
+    )
+  }
+
+  # Create factors for actual and predicted values with specified levels
+  actual <- factor(data[[actual_col]], levels = levels)
+  predicted <- factor(data[[predicted_col]], levels = levels)
+
+  # Generate confusion matrix
+  conf_matrix <- confusionMatrix(predicted, actual)
+  conf_matrix_table <- as.matrix(conf_matrix$table)
+
+  # Melt the confusion matrix into long format
+  conf_matrix_melted <- melt(conf_matrix_table)
+  colnames(conf_matrix_melted) <- c("Predicted", "Actual", "Count")
+
+  # Calculate column-wise (Actual) normalized counts
+  normalized_counts <- apply(conf_matrix_table, 2, function(x) x / sum(x))
+
+  # Create a melted dataframe with normalized counts
+  conf_matrix_normalized <- melt(normalized_counts)
+  colnames(conf_matrix_normalized) <- c("Predicted", "Actual", "NormalizedCount")
+
+  # Merge original counts with normalized counts
+  conf_matrix_melted <- merge(conf_matrix_melted, conf_matrix_normalized)
+
+  # Prepare performance metrics
+  frame1 <- as.data.frame(t(conf_matrix$byClass))
+  frame2 <- as.data.frame(t(conf_matrix$overall))
+
+  # Plot the heatmap with a fixed gradient scale
+  plot <- ggplot(data = conf_matrix_melted, 
+                 aes(x = Actual, y = Predicted, fill = NormalizedCount)) +
+    geom_tile() +
+    scale_fill_gradient(low = "white", high = "#009194", 
+                        limits = c(0, 1),  # Fixed range for normalized counts
+                        breaks = seq(0, 1, 0.2),  # Consistent breaks
+                        labels = scales::percent) +  # Display as percentages
+    geom_text(aes(label = Count), color = "black", size = 6) +  # Increased font size for cell numbers
+    labs(x = "Actual strategy", 
+         y = "Predicted strategy", 
+         fill = "Normalized count\n") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 16),  # Increase title size
+      axis.title = element_text(size = 14),  # Increase axis titles size
+      axis.text = element_text(size = 12),  # Increase axis text size
+      legend.title = element_text(size = 14),  # Increase legend title size
+      legend.text = element_text(size = 12)  # Increase legend text size
+    )
+
+  # Add title with error rate if provided
+  if (!is.null(error_rate)) {
+    plot <- plot + 
+      ggtitle(paste(method_name, "confusion matrix heatmap", 
+                    paste0("(error rate = ", error_rate, ")")))
+  } else {
+    plot <- plot + 
+      ggtitle(paste(method_name, "confusion matrix heatmap"))
+  }
+
+  # Return a list with plot, confusion matrix, and performance metrics
+  return(list(
+    plot = plot,
+    confusion_matrix = conf_matrix_table,
+    by_class_metrics = frame1,
+    overall_metrics = frame2
+  ))
+}
+
+```
+
+Applying the function:
+
+```{r}
+# List of datasets
+datasets <- list(
+  first_0.05 = first_0.05
+  # first_0.1 = first_0.1,
+  # first_0.15 = first_0.15,
+  # second_0.05 = second_0.05,
+  # second_0.1 = second_0.1,
+  # second_0.15 = second_0.15
+  # Add other datasets as needed
+)
+
+# Methods and their corresponding column names
+methods <- list(
+  SFIT = list(
+    actual_col = "sender_strategy_SFIT",
+    predicted_col = "SFIT_classification"
+  ),
+  TREND = list(
+    actual_col = "sender_strategy_TREND",
+    predicted_col = "TREND_classification"
+  ),
+    MLFIT = list(
+    actual_col = "sender_strategy_MLFIT_DFIT",
+    predicted_col = "MLFIT_classification"
+  ),
+  DFIT = list(
+    actual_col = "sender_strategy_MLFIT_DFIT",
+    predicted_col = "DFIT_classification"
+  )
+)
+
+# Generate plots and metrics for each dataset and method
+results <- lapply(names(datasets), function(dataset_name) {
+  lapply(names(methods), function(method_name) {
+    method_details <- methods[[method_name]]
+    plot_confusion_matrix(
+      data = datasets[[dataset_name]],
+      actual_col = method_details$actual_col,
+      predicted_col = method_details$predicted_col,
+      method_name = method_name,
+      error_rate = as.numeric(sub(".*_", "", dataset_name))
+    )
+  })
+})
+
+results
+```
+
+
+
+
+
+```{r}
+# THIS SAVES THE CONFUSION MATRIX .PNG FILES USED IN THE MASTER THESIS
+# Uncomment only if you want to save images
+
+
+# # Directory to save plots
+# # Change directory to wherever you want
+# output_dir <- "C:/Users/AleksaDjordjevic/Downloads/"
+# if (!dir.exists(output_dir)) {
+#   dir.create(output_dir, recursive = TRUE) # Create the directory if it doesn't exist
+# }
+# 
+# # Initialize a list to store all results
+# results <- list()
+# 
+# # Generate plots, metrics, and save each plot as PNG
+# for (dataset_name in names(datasets)) {
+#   for (method_name in names(methods)) {
+#     method_details <- methods[[method_name]]
+#     result <- plot_confusion_matrix(
+#       data = datasets[[dataset_name]],
+#       actual_col = method_details$actual_col,
+#       predicted_col = method_details$predicted_col,
+#       method_name = method_name,
+#       error_rate = as.numeric(sub(".*_", "", dataset_name))
+#     )
+#     
+#     # Save the plot as PNG
+#     ggsave(
+#       filename = file.path(output_dir, paste0(dataset_name, "_", method_name, ".png")),
+#       plot = result$plot,  # Access the plot from the function result
+#       width = 8,          # Width in inches
+#       height = 6,         # Height in inches
+#       dpi = 300           # Resolution for the image
+#     )
+#     
+#     # Store the result in the results list
+#     if (!is.list(results[[dataset_name]])) {
+#       results[[dataset_name]] <- list()
+#     }
+#     results[[dataset_name]][[method_name]] <- result
+#   }
+# }
+# 
+# # Results now contain all metrics and plots
+# results
+
+```
+
+Defining the get strategy functions for substrategy analysis:
+
+```{r}
+get_strategy_MLFIT <- function(substrategy){
+    # Finding the matching strategy
+    if (substrategy %in% c('REW1', 'REW2', 'REW3', 'SREW')){
+      return('REW')
+    }
+    else if(substrategy %in% c('CAU0', 'CAU1', 'SCAU')){
+      return('CAU')
+    }
+    else if(substrategy %in% c('CR10', 'CR11', 'CR20', 'CR21', 'CR30', 'CR31', 'SCR', 'SophCR1', 'SophCR2', 'SophCR3', 'SophCR4', 'SophCR5', 'SophCR6', 'SSophCR', 'SOPHCR1', 'SOPHCR2', 'SOPHCR3', 'SOPHCR4', 'SOPHCR5', 'SOPHCR6', 'SSOPHCR')){
+      return('CR')
+    }
+    else if(substrategy %in% c('MD10', 'MD11', 'MD20', 'MD21', 'MD30', 'MD31', 'SMD', 'SophMD1', 'SophMD2', 'SophMD3', 'SophMD4', 'SophMD5', 'SophMD6', 'SophMD7','SophMD8', 'SophMD9', 'SophMD10', 'SSophMD', 'SOPHMD1', 'SOPHMD2', 'SOPHMD3', 'SOPHMD4', 'SOPHMD5', 'SOPHMD6', 'SOPHMD7','SOPHMD8', 'SOPHMD9', 'SOPHMD10', 'SSOPHMD')){
+      return('MD')
+    }
+    else if(substrategy == 'ALT'){
+      return('ALT')
+    }
+    else if(substrategy == 'DEF'){
+      return('DEF')
+    }
+    else{
+      return('UCL')
+    }
+}
+
+get_strategy_DFIT <- function(substrategy){
+    # Finding the matching strategy
+    if (substrategy %in% c('REW1', 'REW2', 'REW3', 'SREW')){
+      return('REW')
+    }
+    else if(substrategy %in% c('CAU0', 'CAU1', 'SCAU')){
+      return('CAU')
+    }
+    else if(substrategy %in% c('CR10', 'CR11', 'CR20', 'CR21', 'CR30', 'CR31', 'SCR', 'SophCR1', 'SophCR2', 'SophCR3', 'SophCR4', 'SophCR5', 'SophCR6', 'SSophCR', 'SOPHCR1', 'SOPHCR2', 'SOPHCR3', 'SOPHCR4', 'SOPHCR5', 'SOPHCR6', 'SSOPHCR')){
+      return('CR')
+    }
+    else if(substrategy %in% c('MD10', 'MD11', 'MD20', 'MD21', 'MD30', 'MD31', 'SMD', 'SophMD1', 'SophMD2', 'SophMD3', 'SophMD4', 'SophMD5', 'SophMD6', 'SophMD7','SophMD8', 'SophMD9', 'SophMD10', 'SSophMD', 'SOPHMD1', 'SOPHMD2', 'SOPHMD3', 'SOPHMD4', 'SOPHMD5', 'SOPHMD6', 'SOPHMD7','SOPHMD8', 'SOPHMD9', 'SOPHMD10', 'SSOPHMD')){
+      return('MD')
+    }
+    else if(substrategy == 'ALT'){
+      return('ALT')
+    }
+    else if(substrategy == 'DEF'){
+      return('DEF')
+    }
+    else{
+      return('UCL')
+    }
+}
+
+get_strategy_SFIT <- function(substrategy){
+    # Finding the matching strategy
+    if (substrategy %in% c('REW1', 'REW2', 'REW3', 'SREW','CR10', 'CR11', 'CR20', 'CR21', 'CR30', 'CR31', 'SCR', 'SophCR1', 'SophCR2', 'SophCR3', 'SophCR4', 'SophCR5', 'SophCR6', 'SSophCR')){
+      return('REW')
+    }
+    else if(substrategy %in% c('CAU0', 'CAU1', 'SCAU','MD10', 'MD11', 'MD20', 'MD21', 'MD30', 'MD31', 'SMD', 'SophMD1', 'SophMD2', 'SophMD3', 'SophMD4', 'SophMD5', 'SophMD6', 'SophMD7','SophMD8', 'SophMD9', 'SophMD10', 'SSophMD')){
+      return('CAU')
+    }
+    else if(substrategy == 'ALT'){
+      return('ALT')
+    }
+    else if(substrategy == 'DEF'){
+      return('DEF')
+    }
+    else{
+      return('UCL')
+    }
+}
+
+get_strategy_TREND <- function(substrategy){
+    # Finding the matching strategy
+    if (substrategy %in% c('REW1', 'REW2', 'REW3', 'SREW')){
+      return('REW')
+    }
+    else if(substrategy %in% c('CAU0', 'CAU1', 'SCAU')){
+      return('CAU')
+    }
+    else if(substrategy %in% c('CR10', 'CR11', 'CR20', 'CR21', 'CR30', 'CR31', 'SCR', 'SophCR1', 'SophCR2', 'SophCR3', 'SophCR4', 'SophCR5', 'SophCR6', 'SSophCR','MD10', 'MD11', 'MD20', 'MD21', 'MD30', 'MD31', 'SMD', 'SophMD1', 'SophMD2', 'SophMD3', 'SophMD4', 'SophMD5', 'SophMD6', 'SophMD7','SophMD8', 'SophMD9', 'SophMD10', 'SSophMD')){
+      return('SOPH')
+    }
+    else if(substrategy == 'ALT'){
+      return('ALT')
+    }
+    else if(substrategy == 'DEF'){
+      return('DEF')
+    }
+    else{
+      return('UCL')
+    }
+}
+```
+
+
+Substrategy specific analysis:
+
+```{r}
+# Function to calculate stats for a given substrategy and classifier
+calculate_stats_table <- function(data, substrategy, classifier) {
+  # Determine the classification column and strategy conversion function
+  classification_col <- paste0(classifier, "_classification")
+  get_strategy_func <- match.fun(paste0("get_strategy_", classifier))
+  
+  # Filter rows where the sender_substrategy matches the given substrategy
+  filtered_data <- data[data$sender_substrategy == substrategy, ]
+  
+  # Check if there are any rows for the given substrategy
+  if (nrow(filtered_data) == 0) {
+    return(data.frame(
+      Substrategy = substrategy,
+      Method = classifier,
+      Total_Estimations = 0,
+      Correct_Estimations = 0,
+      Misclassifications = 0,
+      Accuracy = NA,
+      Misclassification_Details = NA,
+      stringsAsFactors = FALSE
+    ))
+  }
+  
+  # Convert substrategy to strategy using the appropriate function
+  true_strategy <- get_strategy_func(substrategy)
+  
+  # Calculate total classifications
+  Total_Estimations <- nrow(filtered_data)
+  
+  # Calculate correct classifications
+  Correct_Estimations <- sum(filtered_data[[classification_col]] == true_strategy)
+  
+  # Calculate misclassifications
+  misclassifications <- Total_Estimations - Correct_Estimations
+  
+  # Get the distribution of classifications
+  classification_counts <- table(filtered_data[[classification_col]])
+  
+  # Create a detailed misclassification breakdown
+  misclassification_details <- classification_counts[names(classification_counts) != true_strategy]
+  misclassification_details <- paste(
+    names(misclassification_details),
+    as.numeric(misclassification_details),
+    sep = ": ",
+    collapse = "; "
+  )
+  
+  # Create a result table
+  result <- data.frame(
+    Substrategy = substrategy,
+    Method = classifier,
+    Total_Estimations = Total_Estimations,
+    Correct_Estimations = Correct_Estimations,
+    Misclassifications = misclassifications,
+    Accuracy = round(Correct_Estimations / Total_Estimations, 3),
+    Misclassification_Details = misclassification_details,
+    stringsAsFactors = FALSE
+  )
+  
+  return(result)
+}
+
+
+# Example usage
+# Assuming your data is already loaded as first_0.05
+# and the conversion functions like get_strategy_MLFIT_DFIT are defined
+result_table <- calculate_stats_table(first_0.1, "POI", "MLFIT")
+print(result_table)
+
+result_table <- calculate_stats_table(first_0.1, "POL", "MLFIT")
+print(result_table)
+
+result_table <- calculate_stats_table(first_0.1, "POI", "MLFIT")
+print(result_table)
+```
+
+Calculating stats for all substrategies of a classifier:
+
+```{r}
+# Function to calculate stats for all substrategies for a given classifier
+calculate_all_substrategies_stats <- function(data, classifier) {
+  # Get all unique substrategies in the data
+  substrategies <- unique(data$sender_substrategy)
+  
+  # Initialize an empty list to store results
+  results <- list()
+  
+  # Iterate over each substrategy and calculate stats
+  for (substrategy in substrategies) {
+    result <- calculate_stats_table(data, substrategy, classifier)
+    results[[substrategy]] <- result
+  }
+  
+  # Combine all results into a single data frame
+  final_table <- do.call(rbind, results)
+  return(final_table)
+}
+
+# Example usage
+# Assuming your data is already loaded as first_0.05
+# and the conversion functions like get_strategy_MLFIT_DFIT are defined
+final_table <- calculate_all_substrategies_stats(second_0.1, "MLFIT")
+
+# Print the table
+print(final_table)
+
+```
+Saving them to excel tables
+
+```{r}
+# Load required library
+if (!require(writexl)) install.packages("writexl")
+library(writexl)
+
+generate_and_save_stats <- function(datasets, classifiers, output_file) {
+  # Initialize a list to store all results
+  results_list <- list()
+  
+  # Iterate through each dataset
+  for (dataset_name in names(datasets)) {
+    dataset <- datasets[[dataset_name]]
+    
+    # Iterate through each classifier
+    for (classifier in classifiers) {
+      # Generate stats for all substrategies
+      stats_table <- calculate_all_substrategies_stats(dataset, classifier)
+      
+      # Sort the table by the Substrategy column
+      stats_table <- stats_table[order(stats_table$Substrategy), ]
+      
+      # Add the stats table to the results list
+      sheet_name <- paste0(dataset_name, "_", classifier)
+      results_list[[sheet_name]] <- stats_table
+    }
+  }
+  
+  # Save all results to an Excel file
+  write_xlsx(results_list, output_file)
+  
+  cat("Stats saved to", output_file, "\n")
+}
+
+# Define your datasets as a named list
+datasets <- list(
+  "first_0.05" = first_0.05,
+  "first_0.1" = first_0.1,
+  "first_0.15" = first_0.15,
+  "second_0.05" = second_0.05,
+  "second_0.1" = second_0.1,
+  "second_0.15" = second_0.15
+)
+
+# Define your classifiers
+classifiers <- c("MLFIT", "DFIT", "SFIT", "TREND")
+
+# Define output file path
+output_file <- "C:/Users/aleks/Downloads/substrategy_stats.xlsx"
+
+# Run the function to generate and save stats
+generate_and_save_stats(datasets, classifiers, output_file)
+
+```
+Saving the .csv files:
+
+```{r}
+generate_and_save_stats_csv <- function(datasets, classifiers, output_dir) {
+  # Create the output directory if it doesn't exist
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE)
+  }
+  
+  # Iterate through each dataset
+  for (dataset_name in names(datasets)) {
+    dataset <- datasets[[dataset_name]]
+    
+    # Iterate through each classifier
+    for (classifier in classifiers) {
+      # Generate stats for all substrategies
+      stats_table <- calculate_all_substrategies_stats(dataset, classifier)
+      
+      # Sort the table by the Substrategy column
+      stats_table <- stats_table[order(stats_table$Substrategy), ]
+      
+      # Define the output file name
+      file_name <- paste0(dataset_name, "_", classifier, "_stats.csv")
+      output_file <- file.path(output_dir, file_name)
+      
+      # Save the table to a CSV file
+      write.csv(stats_table, file = output_file, row.names = FALSE)
+    }
+  }
+  
+  cat("Stats saved to CSV files in", output_dir, "\n")
+}
+
+
+# Define your datasets as a named list
+datasets <- list(
+  "first_0.05" = first_0.05,
+  "first_0.1" = first_0.1,
+  "first_0.15" = first_0.15,
+  "second_0.05" = second_0.05,
+  "second_0.1" = second_0.1,
+  "second_0.15" = second_0.15
+)
+
+# Define your classifiers
+classifiers <- c("MLFIT", "DFIT", "SFIT", "TREND")
+
+# Define output directory
+output_dir <- "C:/Users/aleks/Downloads/substrategy_stats_csv"
+
+# Run the function to generate and save stats
+generate_and_save_stats_csv(datasets, classifiers, output_dir)
+
+```
+
+Calculating accuracy used in the Friedman test:
+
+```{r}
+
+# Define a function to calculate accuracy in batches
+batch_accuracy <- function(actual, predicted, batch_size) {
+  total_players <- length(actual)
+  batch_accuracies <- numeric(total_players / batch_size)
+  
+  for (i in seq_len(total_players / batch_size)) {
+    start_idx <- (i - 1) * batch_size + 1
+    end_idx <- i * batch_size
+    batch_actual <- actual[start_idx:end_idx]
+    batch_predicted <- predicted[start_idx:end_idx]
+    batch_accuracies[i] <- mean(batch_actual == batch_predicted)
+  }
+  
+  return(round(batch_accuracies, 4))
+}
+
+# Calculate accuracies for each method
+batch_size <- 60
+
+levels <- c('ALT', 'DEF', 'REW', 'CR', 'MD', 'CAU', 'UCL')
+levels_SFIT <- c('ALT', 'DEF', 'REW', 'CAU', 'UCL')
+levels_TREND <- c('ALT', 'DEF', 'REW', 'CAU', 'SOPH', 'UCL')
+
+actual_MLFIT <- factor(second_0.15$sender_strategy_MLFIT_DFIT, levels = levels)
+predicted_MLFIT <- factor(second_0.15$MLFIT_classification, levels = levels)
+
+actual_DFIT <- factor(second_0.15$sender_strategy_MLFIT_DFIT, levels = levels)
+predicted_DFIT <- factor(second_0.15$DFIT_classification, levels = levels)
+
+actual_SFIT <- factor(second_0.15$sender_strategy_SFIT, levels = levels_SFIT)
+predicted_SFIT <- factor(second_0.15$SFIT_classification, levels = levels_SFIT)
+
+actual_TREND <- factor(second_0.15$sender_strategy_TREND, levels = levels_TREND)
+predicted_TREND <- factor(second_0.15$TREND_classification, levels = levels_TREND)
+
+accuracies_MLFIT <- batch_accuracy(actual_MLFIT, predicted_MLFIT, batch_size)
+accuracies_DFIT <- batch_accuracy(actual_DFIT, predicted_DFIT, batch_size)
+accuracies_SFIT <- batch_accuracy(actual_SFIT, predicted_SFIT, batch_size)
+accuracies_TREND <- batch_accuracy(actual_TREND, predicted_TREND, batch_size)
+
+# Combine the data into a single data frame
+methods <- c(rep("DFIT", length(accuracies_DFIT)), 
+             rep("SFIT", length(accuracies_SFIT)),
+             rep("TREND", length(accuracies_TREND)), 
+             rep("MLFIT", length(accuracies_MLFIT)))
+
+accuracies <- c(accuracies_DFIT, accuracies_SFIT, accuracies_TREND, accuracies_MLFIT)
+
+# Create simulation_id index from 1 to 200 for each method
+results_first_0.05 <- data.frame(
+  method = methods, 
+  accuracy = accuracies,
+  simulation_id = rep(1:length(accuracies_DFIT), times = 4)
+)
+
+# results_first_0.05 <- data.frame(method = methods, accuracy = accuracies)
+
+results_first_0.05 %>%
+  group_by(method) %>%
+  get_summary_stats(accuracy, type = "common")
+
+results_first_0.05 %>%
+  group_by(method) %>%
+  identify_outliers(accuracy)
+# a couple of outliers, but none extreme
+
+results_first_0.05 %>%
+  group_by(method) %>%
+  shapiro_test(accuracy)
+#normality assumption not met
+
+#Note that, if your sample size is greater than 50 (in our case is), the normal QQ plot is preferred because at larger sample sizes the Shapiro-Wilk test becomes very sensitive even to a minor deviation from normality.
+#QQ plot draws the correlation between a given data and the normal distribution. Create QQ plots for each time point:
+
+ggqqplot(results_first_0.05, "accuracy", facet.by = "method")
+
+
+#in our case the results are not so conclusive about normality, as several points do not fall approximately along the reference line -> you could try a non-parametric alternative (Friedman test)
+
+res.aov <- anova_test(data = results_first_0.05, dv = accuracy, wid = simulation_id, within = method)
+get_anova_table(res.aov)
+
+#The accuracy was statistically significantly different across methods (p < 0.0001).
+
+#You can perform multiple pairwise paired t-tests between the levels of the within-subjects factor (here method). P-values are adjusted using the Holm multiple testing correction method.
+pwc <- results_first_0.05 %>%
+  pairwise_t_test(
+    accuracy ~ method, paired = TRUE,
+    p.adjust.method = "holm",detailed=T)
+pwc
+
+#All the pairwise differences are statistically significant.
+
+#Friedman test
+#https://www.datanovia.com/en/lessons/friedman-test-in-r/
+res.fried <- results_first_0.05 %>% friedman_test(accuracy ~ method |simulation_id)
+res.fried
+#The accuracy was statistically significantly different across methods (p < 0.0001).
+
+results_first_0.05 %>% friedman_effsize(accuracy ~ method |simulation_id)
+
+#A large effect size is detected, which is good.
+
+#From the output of the Friedman test, we know that there is a significant difference between groups, but we don’t know which pairs of groups are different.
+#A significant Friedman test can be followed up by pairwise Wilcoxon signed-rank tests for identifying which groups are different.
+
+#Pairwise comparisons using paired Wilcoxon signed-rank test. P-values are adjusted using the holm multiple testing correction method.
+
+pwc1 <- results_first_0.05 %>%
+  wilcox_test(accuracy ~ method, paired = TRUE, p.adjust.method = "holm",detailed=T)
+pwc1
+
+```
+```{r}
+# Existing batch_accuracy function from the original script
+batch_accuracy <- function(actual, predicted, batch_size) {
+  total_players <- length(actual)
+  batch_accuracies <- numeric(total_players / batch_size)
+  
+  for (i in seq_len(total_players / batch_size)) {
+    start_idx <- (i - 1) * batch_size + 1
+    end_idx <- i * batch_size
+    batch_actual <- actual[start_idx:end_idx]
+    batch_predicted <- predicted[start_idx:end_idx]
+    batch_accuracies[i] <- mean(batch_actual == batch_predicted)
+  }
+  
+  return(round(batch_accuracies, 4))
+}
+
+# Function to perform comprehensive accuracy analysis across methods
+perform_accuracy_analysis <- function(data, batch_size = 60) {
+  # Define method-specific levels
+  levels_all <- c('ALT', 'DEF', 'REW', 'CR', 'MD', 'CAU', 'UCL')
+  levels_SFIT <- c('ALT', 'DEF', 'REW', 'CAU', 'UCL')
+  levels_TREND <- c('ALT', 'DEF', 'REW', 'CAU', 'SOPH', 'UCL')
+  
+  # Prepare categorical data for each method
+  actual_MLFIT <- factor(data$sender_strategy_MLFIT_DFIT, levels = levels_all)
+  predicted_MLFIT <- factor(data$MLFIT_classification, levels = levels_all)
+  
+  actual_DFIT <- factor(data$sender_strategy_MLFIT_DFIT, levels = levels_all)
+  predicted_DFIT <- factor(data$DFIT_classification, levels = levels_all)
+  
+  actual_SFIT <- factor(data$sender_strategy_SFIT, levels = levels_SFIT)
+  predicted_SFIT <- factor(data$SFIT_classification, levels = levels_SFIT)
+  
+  actual_TREND <- factor(data$sender_strategy_TREND, levels = levels_TREND)
+  predicted_TREND <- factor(data$TREND_classification, levels = levels_TREND)
+  
+  # Calculate batch accuracies
+  accuracies_MLFIT <- batch_accuracy(actual_MLFIT, predicted_MLFIT, batch_size)
+  accuracies_DFIT <- batch_accuracy(actual_DFIT, predicted_DFIT, batch_size)
+  accuracies_SFIT <- batch_accuracy(actual_SFIT, predicted_SFIT, batch_size)
+  accuracies_TREND <- batch_accuracy(actual_TREND, predicted_TREND, batch_size)
+  
+  # Prepare results dataframe for further analysis
+  methods <- c(rep("DFIT", length(accuracies_DFIT)), 
+               rep("SFIT", length(accuracies_SFIT)),
+               rep("TREND", length(accuracies_TREND)), 
+               rep("MLFIT", length(accuracies_MLFIT)))
+  
+  accuracies <- c(accuracies_DFIT, accuracies_SFIT, accuracies_TREND, accuracies_MLFIT)
+  
+  results_df <- data.frame(
+    method = methods, 
+    accuracy = accuracies,
+    simulation_id = rep(1:length(accuracies_DFIT), times = 4)
+  )
+  
+  # Normality test
+  shapiro_results <- results_df %>%
+    group_by(method) %>%
+    shapiro_test(accuracy)
+  
+  # QQ test
+  qqplot = ggqqplot(results_df, "accuracy", facet.by = "method")
+  
+  # ANOVA test
+  res.aov <- anova_test(data = results_df, dv = accuracy, wid = simulation_id, within = method)
+  anova_table <- get_anova_table(res.aov)
+  
+  # Friedman test
+  res.fried <- results_df %>% friedman_test(accuracy ~ method |simulation_id)
+  friedman_effect_size <- results_df %>% friedman_effsize(accuracy ~ method |simulation_id)
+  
+  # Pairwise Wilcoxon signed-rank test
+  pwc_wilcox <- results_df %>%
+    wilcox_test(accuracy ~ method, paired = TRUE, 
+                p.adjust.method = "holm", 
+                detailed = TRUE)
+  
+  # Combine all results
+  return(list(
+    results_dataframe = results_df,
+    normality_test = shapiro_results,
+    anova_test = anova_table,
+    friedman_test = list(
+      test_result = res.fried,
+      effect_size = friedman_effect_size
+    ),
+    pairwise_wilcoxon = pwc_wilcox,
+    qplot = qqplot
+  ))
+}
+
+perform_accuracy_analysis(second_0.05)
+
+```
+
+
+
