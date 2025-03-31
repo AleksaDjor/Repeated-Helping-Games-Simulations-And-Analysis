@@ -1,4 +1,4 @@
-# Simulating-Repeated-Helping-Games
+# Repeated Helping Games: Simulations and Analysis
 
 The code of my master's thesis: 
 
