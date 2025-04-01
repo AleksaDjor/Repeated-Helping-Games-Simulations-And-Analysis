@@ -4,7 +4,7 @@ The code of my master's thesis:
 
 Evaluating the performance of behavioral strategy estimation methods in repeated helping games: A Monte Carlo approach.
 
-Master's thesis can be found on: **[link to be included]**
+The master's thesis can be found on: **[the repository of University of Primorska](https://repozitorij.upr.si/IzpisGradiva.php?id=21152&lang=eng)**
 
 **Mentor**: Assoc. Prof. Aljaž Ule, PhD
 
@@ -24,7 +24,7 @@ Simulations allow for controlled testing of the performance of estimation method
 The estimation methods are based on those used in experimental helping game studies. 
 Two of the methods (SFIT and TREND) are based on logistic regression, one (MLFIT) is based on finite mixture models, relying on maximum likelihood estimates, and one (DFIT) is based on the number of successful matches of actual decisions with decisions simulated from deterministic (sub)strategies. 
 
-The simulations allowed us to estimate the true accuracy of each of the four methods, revealing their potential shortcomings. The resultsshowed that the MLFIT method was quite accurate (accuracy: 82%-88% at different noise levels), and in particular was more accurate than the other three methods for
+The simulations allowed us to estimate the true accuracy of each of the four methods, revealing their potential shortcomings. The results showed that the MLFIT method was quite accurate (accuracy: 82%-88% at different noise levels), and in particular was more accurate than the other three methods for
 both substrategy distributions studied, regardless of the magnitude of the noise.
 
 ## Contents: 
