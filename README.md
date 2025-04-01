@@ -44,16 +44,4 @@ both substrategy distributions studied, regardless of the magnitude of the noise
 - Calculates stats for substrategies,
 - Calculates accuracy used for hypothesis testing (QQ plots, Shapiro-Wilk, ANOVA, Friedman, Wilxocon paired signed rank, paired t tests).
 
-**Currently the code is implemented in R markdown for easier comprehension. R is used since there are already packages in R that simplify implementing MLFIT.**
-
-## To be included:
-
-Simple and needed implementations:
-- Testing epsilon = 0 (curiosity),
-- Tidying up the main code and analysis,
-- Implementing a single R file that runs simulations,
-- Making a new R file that contains only estimation methods and is suited for experimental analysis,
-
-Other implementations (mostly elaborated in the Further Discussion of my master's thesis):
-- Implementing a new estimation method,
-- Using evolutionary game theory for simulations (running different distributions and having developing populations based on which strategy/substrategy is most profitable and/or cognitively simple).
+**Currently the code is implemented in R markdown for easier comprehension. R is used since there is [already a package](https://github.com/fdvorak/stratEst/) in R that simplifies implementing MLFIT.**

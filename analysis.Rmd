@@ -11,21 +11,19 @@ Setting up packages:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-
-# Loading required libraries
-library(data.table)
+# Installing required libraries
 # install.packages("arm")
-# library(boot)
-library(arm) # used for bayesglm
-# install.packages("stringr")
-library(stringr) # counting strings
-# install.packages("stratEst")
-library(stratEst)
 # install.packages("caret")
-library(caret)
-library(dplyr)
 # install.packages("ggplot2")
 # install.packages("reshape2")
+# install.packages("rstatix")
+# install.packages("ggpubr")
+ 
+# Loading required libraries
+library(data.table)
+library(arm) # used for bayesglm
+library(caret)
+library(dplyr)
 library(ggplot2)
 library(reshape2)
 library(rstatix)
@@ -190,7 +188,6 @@ results
 ```{r}
 # THIS SAVES THE CONFUSION MATRIX .PNG FILES USED IN THE MASTER THESIS
 # Uncomment only if you want to save images
-
 
 # # Directory to save plots
 # # Change directory to wherever you want
@@ -669,6 +666,7 @@ pwc1 <- results_first_0.05 %>%
 pwc1
 
 ```
+
 ```{r}
 # Existing batch_accuracy function from the original script
 batch_accuracy <- function(actual, predicted, batch_size) {
@@ -763,7 +761,6 @@ perform_accuracy_analysis <- function(data, batch_size = 60) {
 }
 
 perform_accuracy_analysis(second_0.05)
-
 ```
 
 

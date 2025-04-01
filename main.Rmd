@@ -11,22 +11,19 @@ Setting up packages:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+# Installing required libraries
+#install.packages("arm")
+#install.packages("stringr")
+#install.packages("stratEst")
+#install.packages("caret")
+#install.packages("ggplot2")
+#install.packages("reshape2")
 
 # Loading required libraries
 library(data.table)
-#install.packages("arm")
-# library(boot)
 library(arm) # used for bayesglm
-#install.packages("stringr")
 library(stringr) # counting strings
-#install.packages("stratEst")
-library(stratEst)
-#install.packages("caret")
-library(caret)
-library(dplyr)
-#install.packages("ggplot2")
-#install.packages("reshape2")
-library(ggplot2)
+library(stratEst) # MLFIT
 library(reshape2)
 ```
 
@@ -100,8 +97,8 @@ sum(unname(substrategy_probabilities))
 After obtaining the distribution of substrategies, we need to form our
 experiment groups. We do that by making a function that takes
 the probabilities and makes one simulation experiment group of m
-people, each substrategy appearing with a probability represented in the
-probability distribution presented above.
+people (in our simulations m = 6), each substrategy appearing with a probability
+represented in the probability distribution presented above.
 
 ```{r}
 # Defining a function to generate a set of "exp_group_size" players
@@ -172,8 +169,6 @@ get_action <- function(substrategy, round, self_history_sum, opp_history_sum, pa
   } 
   else if (substrategy == 'SREW') {
     helping_ratio <- opp_history_sum / 3
-    # Choose action with probabilities, 
-    # with helping_ratio we play H and with 1 - helping_ratio we play P
     decision <- sample(c('H', 'P'), size = 1, prob = c(helping_ratio, 1 - helping_ratio))
     return(decision)
   }
@@ -625,7 +620,7 @@ simulate <- function(num_players = 6, num_rounds = 100, substrategy_probabilitie
   
   #The main function that simulates the whole game.
   #It returns a table of the form:
-  #[round, player1_id, player2_id, player_1_substrategy, player_1_history, player_2_history, player_1_payoff, player_2_payoff, exp_history] for each game played among the pairs
+  #[round, player1_id, player2_id, player_1_substrategy, player_1_action, player_1_history, player_2_history, player_1_budget, player_2_budget, exp_history, sender_number_of_helps, receiver_number_of_helps] for each round played among the pairs
   
   # We generate our substrategies
   substrategies <- generate_players(substrategy_probabilities, num_players)
@@ -657,14 +652,14 @@ simulate <- function(num_players = 6, num_rounds = 100, substrategy_probabilitie
 
   # Making a list for player experience, everybody starts with a random experience
   # player experience is a random collection of 'H' and 'P'
-  # both of which appear with a probability 50% for each move
+  # both of which appear with a probability 50% for each action
   experiential_history <- lapply(1:num_players, function(x) {
     paste(sample(c('H', 'P'), size = 3, replace = TRUE), collapse = "")
   })
 
   # We define a history function for all of the players, 
   # starting history is a random collection of 'H' and 'P'
-  # both of which appear with a probability 50% for each move
+  # both of which appear with a probability 50% for each action
   player_history <- lapply(1:num_players, function(x) {
     paste(sample(c('H', 'P'), size = 3, replace = TRUE), collapse = "")
   })
@@ -746,6 +741,7 @@ simulate <- function(num_players = 6, num_rounds = 100, substrategy_probabilitie
   return(table)
 }
 
+simulate(substrategy_probabilities = substrategy_probabilities)
 ```
 
 Forming the simulation data - a list of simulations which can be accessed by
@@ -1668,7 +1664,7 @@ num_rounds <- 100
 sender_payoff <- 150
 receiver_payoff <- 250
 starting_money <- 3000
-error_rate <- 0.1
+error_rate <- 0
 
 first_substrategy_probabilities <- c(ALT = 7/54, #7/54
                             DEF = 12/54, #12/54
@@ -1723,8 +1719,8 @@ first_substrategy_probabilities <- c(ALT = 7/54, #7/54
                             EX1 = 11/(54*5)) #11/54 /5 for memory-1 experiential substr
 
 simulation_list <- simulate_data(num_simulations, num_players, num_rounds, substrategy_probabilities = first_substrategy_probabilities, sender_payoff, receiver_payoff, starting_money, error_rate)
-test_predict_0.05_first <- predictions_df(number_of_experimental_groups = num_simulations, number_of_experimental_groups_MLFIT = 10, size_of_experimental_group = 6)
-
+test_predict_0.00_first <- predictions_df(number_of_experimental_groups = num_simulations, number_of_experimental_groups_MLFIT = 10, size_of_experimental_group = 6)
+# test_predict_0.00_first
 ```
 
 
@@ -1737,8 +1733,8 @@ test_predict_0.05_first <- predictions_df(number_of_experimental_groups = num_si
 # receiver_payoff <- 250
 # starting_money <- 3000
 # 
-# # first distribution
-# # Defining substrategy probabilities
+# # # first distribution
+# # # Defining substrategy probabilities
 # first_substrategy_probabilities <- c(ALT = 7/54, #7/54
 #                             DEF = 12/54, #12/54
 #                             REW1 = 6/54, #14/54 /# of all REW substr
@@ -1780,69 +1776,17 @@ test_predict_0.05_first <- predictions_df(number_of_experimental_groups = num_si
 #                             SophMD9 = 1/54,
 #                             SophMD10 = 0,
 #                             SSophMD = 0,
-#                             POI = 11/(54*4*3), #11/54 /4 for all PO substr
-#                             POH = 11/(54*4*3),
-#                             POL = 11/(54*4*3),
-#                             RAND = 11/(54*4), #11/54 /4 for RAND substr
-#                             EXP31 = 11/(54*4*5), #11/54 /4 for all EXP substr
-#                             EXP32 = 11/(54*4*5),
-#                             EXP33 = 11/(54*4*5),
-#                             EXP3S = 11/(54*4*5),
-#                             ALTERNATE = 11/(54*4), #11/54 /4 for ALTERNATE substr
-#                             EX1 = 11/(54*4*5))
-# 
-first_substrategy_probabilities <- c(ALT = 7/54, #7/54
-                            DEF = 12/54, #12/54
-                            REW1 = 6/54, #14/54 /# of all REW substr
-                            REW2 = 0,
-                            REW3 = 1/54,
-                            SREW = 7/54,
-                            CAU0 = 0, #1/54 /# of all CAU substr
-                            CAU1 = 0,
-                            SCAU = 1/54,
-                            CR10 = 0, #5/54 /# of all CR substr
-                            CR11 = 0,
-                            CR20 = 0,
-                            CR21 = 0,
-                            CR30 = 0,
-                            CR31 = 0,
-                            SCR = 5/54,
-                            MD10 = 1/54, #4/54 /# of all MD substr
-                            MD11 = 0,
-                            MD20 = 0,
-                            MD21 = 0,
-                            MD30 = 0,
-                            MD31 = 0,
-                            SMD = 2/54,
-                            SophCR1 = 0,
-                            SophCR2 = 0,
-                            SophCR3 = 0,
-                            SophCR4 = 0,
-                            SophCR5 = 0,
-                            SophCR6 = 0,
-                            SSophCR = 0,
-                            SophMD1 = 0,
-                            SophMD2 = 0,
-                            SophMD3 = 0,
-                            SophMD4 = 0,
-                            SophMD5 = 0,
-                            SophMD6 = 0,
-                            SophMD7 = 0,
-                            SophMD8 = 0,
-                            SophMD9 = 1/54,
-                            SophMD10 = 0,
-                            SSophMD = 0,
-                            POI = 11/(54*5*3), #11/54 /5 for all PO substr
-                            POH = 11/(54*5*3),
-                            POL = 11/(54*5*3),
-                            RAND = 11/(54*5), #11/54 /5 for RAND substr
-                            EXP31 = 11/(54*5*4), #11/54 /5 for all EXP substr
-                            EXP32 = 11/(54*5*4),
-                            EXP33 = 11/(54*5*4),
-                            EXP3S = 11/(54*5*4),
-                            ALTERNATE = 11/(54*5), #11/54 /5 for ALTERNATE substr
-                            EX1 = 11/(54*5)) #11/54 /5 for memory-1 experiential substr
-# 
+#                             POI = 11/(54*5*3), #11/54 /5 for all PO substr
+#                             POH = 11/(54*5*3),
+#                             POL = 11/(54*5*3),
+#                             RAND = 11/(54*5), #11/54 /5 for RAND substr
+#                             EXP31 = 11/(54*5*4), #11/54 /5 for all EXP substr
+#                             EXP32 = 11/(54*5*4),
+#                             EXP33 = 11/(54*5*4),
+#                             EXP3S = 11/(54*5*4),
+#                             ALTERNATE = 11/(54*5), #11/54 /5 for ALTERNATE substr
+#                             EX1 = 11/(54*5)) #11/54 /5 for memory-1 experiential substr
+# # 
 # # simulations, comment out to not run all simulations
 # for (error_rate in c(0.05,0.1,0.15)){
 #   if (error_rate == 0.05) {
@@ -1858,61 +1802,15 @@ first_substrategy_probabilities <- c(ALT = 7/54, #7/54
 #       predict_0.15_first <- predictions_df(number_of_experimental_groups = num_simulations, number_of_experimental_groups_MLFIT = 10, size_of_experimental_group = 6)
 #       write.csv(predict_0.15_first,"~/Downloads/predict_0.15_first.csv", row.names = FALSE)
 #     }
+#       else if (error_rate == 0) {
+#       simulation_list <- simulate_data(num_simulations, num_players, num_rounds, substrategy_probabilities = first_substrategy_probabilities, sender_payoff, receiver_payoff, starting_money, error_rate)
+#       predict_0_first <- predictions_df(number_of_experimental_groups = num_simulations, number_of_experimental_groups_MLFIT = 10, size_of_experimental_group = 6)
+#       write.csv(predict_0_first,"~/Downloads/predict_0_first.csv", row.names = FALSE)
+#         
+#       }
 # }
 # 
 # # second distribution
-# # second_substrategy_probabilities <- c(ALT = 7/54, #7/54 
-# #                             DEF = 12/54, #12/54
-# #                             REW1 = 14/(4*54), #14/54 /# of all REW substr
-# #                             REW2 = 14/(4*54), 
-# #                             REW3 = 14/(4*54),
-# #                             SREW = 14/(4*54),
-# #                             CAU0 = 1/(3*54), #1/54 /# of all CAU substr
-# #                             CAU1 = 1/(3*54),
-# #                             SCAU = 1/(3*54),
-# #                             CR10 = 5/(14*54), #5/54 /# of all CR substr
-# #                             CR11 = 5/(14*54),
-# #                             CR20 = 5/(14*54),
-# #                             CR21 = 5/(14*54),
-# #                             CR30 = 5/(14*54),
-# #                             CR31 = 5/(14*54),
-# #                             SCR = 5/(14*54),
-# #                             MD10 = 4/(18*54), #4/54 /# of all MD substr
-# #                             MD11 = 4/(18*54),
-# #                             MD20 = 4/(18*54),
-# #                             MD21 = 4/(18*54),
-# #                             MD30 = 4/(18*54),
-# #                             MD31 = 4/(18*54),
-# #                             SMD = 4/(18*54),
-# #                             SophCR1 = 5/(14*54),
-# #                             SophCR2 = 5/(14*54),
-# #                             SophCR3 = 5/(14*54),
-# #                             SophCR4 = 5/(14*54),
-# #                             SophCR5 = 5/(14*54),
-# #                             SophCR6 = 5/(14*54),  
-# #                             SSophCR = 5/(14*54), 
-# #                             SophMD1 = 4/(18*54),
-# #                             SophMD2 = 4/(18*54),
-# #                             SophMD3 = 4/(18*54),
-# #                             SophMD4 = 4/(18*54),
-# #                             SophMD5 = 4/(18*54),
-# #                             SophMD6 = 4/(18*54), 
-# #                             SophMD7 = 4/(18*54),
-# #                             SophMD8 = 4/(18*54),
-# #                             SophMD9 = 4/(18*54),
-# #                             SophMD10 = 4/(18*54),
-# #                             SSophMD = 4/(18*54),
-# #                             POI = 11/(54*4*3), #11/54 /4 for all PO substr
-# #                             POH = 11/(54*4*3),
-# #                             POL = 11/(54*4*3),
-# #                             RAND = 11/(54*4), #11/54 /4 for RAND substr
-# #                             EXP31 = 11/(54*4*5), #11/54 /4 for all EXP substr
-# #                             EXP32 = 11/(54*4*5),
-# #                             EXP33 = 11/(54*4*5),
-# #                             EXP3S = 11/(54*4*5),
-# #                             ALTERNATE = 11/(54*4), #11/54 /4 for ALTERNATE substr
-# #                             EX1 = 11/(54*4*5))
-# 
 second_substrategy_probabilities <- c(ALT = 7/54, #7/54
                             DEF = 12/54, #12/54
                             REW1 = 14/(4*54), #14/54 /# of all REW substr
@@ -1980,6 +1878,12 @@ second_substrategy_probabilities <- c(ALT = 7/54, #7/54
 #       predict_0.15_second <- predictions_df(number_of_experimental_groups = num_simulations, number_of_experimental_groups_MLFIT = 10, size_of_experimental_group = 6)
 #       write.csv(predict_0.15_second,"~/Downloads/predict_0.15_second.csv", row.names = FALSE)
 #     }
+#       else if (error_rate == 0) {
+#       simulation_list <- simulate_data(num_simulations, num_players, num_rounds, substrategy_probabilities = second_substrategy_probabilities, sender_payoff, receiver_payoff, starting_money, error_rate)
+#       predict_0_second <- predictions_df(number_of_experimental_groups = num_simulations, number_of_experimental_groups_MLFIT = 10, size_of_experimental_group = 6)
+#       write.csv(predict_0_first,"~/Downloads/predict_0_second.csv", row.names = FALSE)
+#         
+#       }
 # }
 
 
@@ -1988,11 +1892,13 @@ second_substrategy_probabilities <- c(ALT = 7/54, #7/54
 We save all the data frames in the Downloads folder. The data frames are:
 
 ```{r}
-# We load the data sets from the simulations
+# We load the data sets from the simulations as a check
+first_0 <- read.csv("~/Downloads/predict_0_first.csv", header=TRUE)
 first_0.05 <- read.csv("~/Downloads/predict_0.05_first.csv", header=TRUE)
 first_0.1 <- read.csv("~/Downloads/predict_0.1_first.csv", header=TRUE)
 first_0.15 <- read.csv("~/Downloads/predict_0.15_first.csv", header=TRUE)
 
+second_0 <- read.csv("~/Downloads/predict_0_second.csv", header=TRUE)
 second_0.05 <- read.csv("~/Downloads/predict_0.05_second.csv", header=TRUE)
 second_0.1 <- read.csv("~/Downloads/predict_0.1_second.csv", header=TRUE)
 second_0.15 <- read.csv("~/Downloads/predict_0.15_second.csv", header=TRUE)
